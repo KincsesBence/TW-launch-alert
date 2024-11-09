@@ -1,0 +1,7 @@
+{
+  "name": "attack-launch-alert",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react-vite"
+}
