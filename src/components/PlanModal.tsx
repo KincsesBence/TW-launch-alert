@@ -1,39 +1,39 @@
-import {IonBadge, IonButton, IonButtons, IonChip, IonCol, IonContent, IonGrid, IonHeader, IonInput, IonItem, IonItemDivider, IonItemOption, IonLabel, IonList, IonModal, IonRange, IonRow, IonSelect, IonSelectOption, IonTitle, IonToolbar, useIonToast } from '@ionic/react';
+import {IonBadge, IonButton, IonButtons, IonChip, IonCol, IonContent, IonGrid, IonHeader, IonIcon, IonInput, IonItem, IonItemDivider, IonItemOption, IonLabel, IonList, IonModal, IonRange, IonRow, IonSelect, IonSelectOption, IonTitle, IonToolbar, useIonToast } from '@ionic/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import StorageManager  from './storageManager'
 import { CapacitorBarcodeScanner } from '@capacitor/barcode-scanner';
-import { attack, plan } from '../pages/Home';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
-import {channels} from '../App';
 import { useTranslation } from 'react-i18next';
+import { capacitorExactAlarm } from 'capacitor-exact-alarm'
+import { musicalNotesOutline } from 'ionicons/icons';
+import { attack, plan } from '../store/appSlice';
+
 
 type Ref = {
     setState:(state:boolean)=>void
 }
 
 type Props = {
-    finishHandler:()=>void
+    finishHandler:(completed:boolean)=>void
+    isOpen:boolean;
+    planIn:plan | null;
 }
 
 
-const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => {
+const PlanModal: React.FC<Props> = ({finishHandler,isOpen,planIn}:Props) => {
     const { t, i18n } = useTranslation();
     const [present] = useIonToast();
-    const [open,setOpen] = useState<boolean>(false);
-    const [plan,setPlan] = useState<plan | null>(null);
     const [rangeCombine,setRangeCombine] = useState<number>(1);
     const [rangeBefore,setRangeBefore] = useState<number>(1);
     const [sound,setSound] = useState<string>('default');
+    const [plan,setPlan] = useState<plan | null>(planIn);
 
-
-    React.useImperativeHandle(ref,()=>({
-        setState:(state:boolean)=>{
-            setOpen(state);
-            setPlan(null);
-        }
-    }));
-
+    useEffect(()=>{
+        if(planIn === null) return
+        setSound(planIn.sound);
+        setRangeCombine(planIn.combineMinutes);
+        setRangeBefore(planIn.alertBeforeMins);
+    },[])
+    
     const presentToast = (text:string,color:string) => {
         present({
           message: text,
@@ -53,29 +53,47 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
             return;
         }
 
-        let temp = plan;
+        let temp = structuredClone(plan);
 
         temp.combineMinutes = rangeCombine;
         temp.alertBeforeMins = rangeBefore; 
-        temp.channelId = sound;
-
+        temp.sound = sound;
+        console.log(JSON.stringify(temp));
+        
         await StorageManager.createPlan(temp);
-        createChannnels(temp.channelId);
+        console.log('PlanCreated');
+        
 
         presentToast(t('success_add_plan'),'success');
 
-        props.finishHandler();
-        setOpen(false);
+        finishHandler(true);
+        setPlan(null);
+        setSound('default');
     }
 
-    async function createChannnels(channelName:string){
-        let res = await LocalNotifications.listChannels();
-        let cind=res.channels.findIndex((channel)=>{return channel.id==channelName})
-        if(cind>-1) return;
-        let cind2=channels.findIndex((channel)=>{return channel.id==channelName})
-        if(cind2==-1) return;
-        LocalNotifications.createChannel(channels[cind2]);
+     async function confirmEdit(){
+        if(plan==null){
+            presentToast(t('load_plan_fisrt'),'danger');
+            return;
+        }
+        if(plan.loadedPages.length!=plan.maxPage){
+            presentToast(t('load_all_pages'),'danger');
+            return;
+        }
+
+        let temp = structuredClone(plan);
+
+        temp.combineMinutes = rangeCombine;
+        temp.alertBeforeMins = rangeBefore; 
+        temp.sound = sound;
+
+        await StorageManager.editPlan(temp);
+
+        presentToast(t('success_edit_plan'),'success');
+
+        finishHandler(true);
     }
+
 
     async function scan(){
         try {
@@ -110,7 +128,8 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
                 alertBeforeMins:0,
                 attacks:[],
                 armed:false,
-                channelId:'',
+                sound:'',
+                alarmIds:[]
             }
         }else{
             tempPlan=plan;
@@ -119,7 +138,6 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
         const mainFrags = result.replace('twla://','').split('/');
         const attacksData = mainFrags[1].split(';');
         const header = mainFrags[0].split(',');
-        //1:2,hu89.klanhaboru.hu,ASG arma
         let pageNum,maxPage,planName,url,world,domain
 
         if(header.length==1 && tempPlan.maxPage==0){
@@ -189,31 +207,68 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
         presentToast(t('QR_success_read'),'success');
         setPlan({...tempPlan});
     }
-    function openAppSettings(){
-        NativeSettings.openAndroid({
-            option: AndroidSettings.ApplicationDetails,
-          });          
-    }
     
+    async function selectSound(){
+        const sound = await capacitorExactAlarm.pickAlarmSound();
+        setSound(sound.uri)
+    }
+
+    function getTitle(uri:string){
+        if(!uri.includes('?')){
+            return "Default sound";
+        }
+        const queryString = uri.split('?')[1]; 
+
+        const params:any = {};
+
+        if(!queryString.includes('&')){
+            return "Default sound";
+        }
+
+        queryString.split('&').forEach(pair => {
+            const [key, value] = pair.split('=');
+            params[key as keyof object] = decodeURIComponent(value);
+        });
+
+        if(Object.hasOwn(params,'title')){
+            return params.title
+        }else{
+            return "Default sound";
+        }
+         
+    }
 
     return (
-        <IonModal isOpen={open}>
+        <IonModal
+            onDidDismiss={()=>{finishHandler(false)}}
+            isOpen={isOpen}
+        >
             <IonHeader>
             <IonToolbar color='primary'>
                 <IonButtons slot="start">
-                <IonButton onClick={()=>{setOpen(false)}}>{t('cancel')}</IonButton>
+                <IonButton onClick={()=>{finishHandler(false)}}>{t('cancel')}</IonButton>
                 </IonButtons>
-                <IonTitle>{t('new_plan')}</IonTitle>
+                {!planIn ?
+                    <IonTitle>{t('new_plan')}</IonTitle>
+                    :
+                    <IonTitle>{t('edit_plan')}</IonTitle>
+                }
                 <IonButtons slot="end">
-                <IonButton strong={true} onClick={confirmAdd}>
-                    {t('add')}
-                </IonButton>
+                {!planIn ?
+                    <IonButton strong={true} onClick={confirmAdd}>
+                        {t('add')}
+                    </IonButton>
+                    :
+                    <IonButton strong={true} onClick={confirmEdit}>
+                        {t('edit')}
+                    </IonButton>
+                }
                 </IonButtons>
             </IonToolbar>
             </IonHeader>
             <IonContent className="ion-padding">
                 <IonGrid>
-                    {(plan==null || plan!.loadedPages.length<plan!.maxPage)  &&
+                    {!planIn && (plan==null || plan!.loadedPages.length<plan!.maxPage)  &&
                     <>
                         <IonRow class='ion-text-center'>
                             <IonCol>
@@ -273,18 +328,16 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
                                 </IonCol>
                             </IonItem>
                             <IonItem>
-                                <IonSelect value={sound} onIonChange={(e)=>{setSound(e.target.value)}} label="Értesítés hang" labelPlacement="stacked">
-                                    <IonSelectOption value="default">{t('default')}</IonSelectOption>
-                                    {channels.map((channel)=>{
-                                     return(<IonSelectOption key={channel.id} value={channel.id}>{channel.name}</IonSelectOption>)   
-                                    })}
-                                </IonSelect>
+                                 <IonCol>
+                                    <b>{t('sound')}:</b>
+                                </IonCol>
+                                <IonCol>
+                                    <IonButton onClick={selectSound}>
+                                        <IonIcon slot="start" icon={musicalNotesOutline} />
+                                        {getTitle(sound)}
+                                     </IonButton>
+                                </IonCol>
                             </IonItem>
-                            {sound=='default' &&
-                                <IonItem>
-                                    <IonChip style={{textAlign:'center'}} onClick={openAppSettings} color="warning">{t('to_set_def_sound')}</IonChip>
-                                </IonItem>
-                            }
                             <IonItem>
                                 <IonRange pin={true} ticks={true} snaps={true} min={0} max={30} onIonChange={(e)=>{setRangeBefore(parseInt(e.target.value.toString()))}} labelPlacement="stacked" label={`Indítások elött ${rangeBefore} percel`}></IonRange>
                             </IonItem>
@@ -300,4 +353,4 @@ const editPlanModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => 
     );
 };
 
-export default React.forwardRef(editPlanModal);
+export default PlanModal;

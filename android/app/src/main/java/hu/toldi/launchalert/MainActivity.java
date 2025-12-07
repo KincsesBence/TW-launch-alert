@@ -1,4 +1,4 @@
-package io.ionic.starter;
+package hu.toldi.launchalert;
 
 import com.getcapacitor.BridgeActivity;
 

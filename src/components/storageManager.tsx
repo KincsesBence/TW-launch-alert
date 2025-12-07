@@ -1,5 +1,7 @@
-import { attack, plan } from "../pages/Home";
+
 import { Preferences } from '@capacitor/preferences';
+import { attack, loadPlans, plan } from '../store/appSlice';
+import { store } from '../store/store';
 
 export default class StorageManager {
     private static data:plan[]=[];
@@ -23,6 +25,8 @@ export default class StorageManager {
                 key: 'appData',
                 value: JSON.stringify(StorageManager.data)
             })
+
+            store.dispatch(loadPlans(structuredClone(StorageManager.data)));
         } catch (error) {
             console.error('error save:',error);
         }
@@ -43,6 +47,8 @@ export default class StorageManager {
 
     static async getPlans():Promise<plan[]>{
         await StorageManager.init()
+        console.log('plans',JSON.stringify(StorageManager.data));
+        store.dispatch(loadPlans(structuredClone(StorageManager.data)));
         return StorageManager.data;
     }
 
@@ -56,6 +62,8 @@ export default class StorageManager {
     static async editPlan(planIn:plan):Promise<number>{
         await StorageManager.init()
         let indp = StorageManager.data.findIndex((plan:plan) => plan.id==planIn.id);
+        console.log('planEdit',indp);
+        
         if(indp==-1) return indp;
         StorageManager.data[indp]=planIn;
         StorageManager.save()

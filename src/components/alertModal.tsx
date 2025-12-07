@@ -1,48 +1,29 @@
 import {IonBadge, IonButton, IonButtons, IonCheckbox, IonChip, IonCol, IonContent, IonGrid, IonHeader, IonIcon, IonInput, IonItem, IonItemDivider, IonItemOption, IonLabel, IonList, IonModal, IonRange, IonRow, IonSelect, IonSelectOption, IonTitle, IonToolbar, useIonToast } from '@ionic/react';
 import React, { useEffect, useState } from 'react';
 import StorageManager  from './storageManager'
-import { attack, plan } from '../pages/Home';
 import { useTranslation } from 'react-i18next';
 import { openOutline } from 'ionicons/icons';
-
-type Ref = {
-    setState:(state:boolean)=>void
-}
+import { attack, plan } from '../store/appSlice';
+import { capacitorExactAlarm } from 'capacitor-exact-alarm';
 
 type Props = {
     finishHandler:()=>void
+    open:boolean
     plan:plan | null
     ids:number[]
 }
 
-const alertModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => {
+const AlertModal: React.FC<Props> = ({finishHandler,open,plan,ids}:Props) => {
     const { t, i18n } = useTranslation();
     const [present] = useIonToast();
-    const [open,setOpen] = useState<boolean>(false);
     const [attacks,setAttacks] = useState<attack[]>([])
 
-    React.useImperativeHandle(ref,()=>({
-        setState:(state:boolean)=>{            
-            setOpen(state);
-        }
-    }));
-
     useEffect(()=>{
-        console.log('propIDs',props.ids);
-        if(props.ids.length>0){
-            loadAttacks();
-            setOpen(true);
-        }
-    },[props.ids])
-
-    const presentToast = (text:string,color:string) => {
-        present({
-          message: text,
-          duration: 3000,
-          position: 'middle',
-          color: color
-        });
-    };
+        if(!ids && !plan) return
+        console.log('AlertModal',JSON.stringify(ids));
+        const att:attack[] = plan!.attacks.filter((attack:attack) => ids.includes(attack.id))
+        setAttacks(att)
+    },[ids,plan])
 
     function formatDate(date:number){
         return new Intl.DateTimeFormat(i18n.language, {
@@ -52,31 +33,25 @@ const alertModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => {
         }).format(date);
     }
 
-    function loadAttacks(){
-        let temp:attack[] = [];
-        props.ids.forEach(element => {
-            temp.push(props.plan!.attacks[element])
-        });
-        if(temp.length>0){
-            setAttacks([...temp]);
-        }
-    }
-
     async function launchSent(){
-        let planTemp={...props.plan!}
-        props.ids.forEach(element => {            
-            planTemp.attacks[element].alertSent=true;
-            planTemp.attacks[element].alertPending=false;
+        let planTemp = structuredClone(plan);
+        ids.forEach(id => {      
+            let idx = planTemp!.attacks.findIndex(attack => attack.id==id)
+            if(idx>-1){
+                planTemp!.attacks[idx].alertSent=true;
+                planTemp!.attacks[idx].alertPending=false;
+            }
         });
-        console.log(planTemp);
-        
-        await StorageManager.editPlan(planTemp);
-        props.finishHandler();
-        setOpen(false);
+        await StorageManager.editPlan(planTemp!);
+        capacitorExactAlarm.stopAlarm();
+        finishHandler();
     }
 
     return (
-        <IonModal isOpen={open}>
+        <IonModal 
+            isOpen={open}
+            onDidDismiss={finishHandler}
+        >
             <IonHeader>
             <IonToolbar color='primary'>
                 <IonButtons slot="start">
@@ -108,10 +83,10 @@ const alertModal: React.ForwardRefRenderFunction<Ref,Props> = (props,ref) => {
                             <IonButton className='ion-text-center' onClick={launchSent}>{t('launches_sent')}</IonButton>
                         </IonCol>
                     </IonRow>
-              </IonGrid>
+                </IonGrid>
             </IonContent>
         </IonModal>
     );
 };
 
-export default React.forwardRef(alertModal);
+export default AlertModal;

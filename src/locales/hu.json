@@ -34,7 +34,7 @@
     "world":"Világ",
     "num_of_attacks":"Támadások száma",
     "default":"Alapértelmezett",
-    "to_set_def_sound":"Az alapértelmezett értesítés hangot a rendszer beállításoknál változtathatod (megnyitáshoz kattints ide)",
+    "sound": "Hang",
     "edit":"Oké",
     "edit_plan":"Szerkesztés",
     "success_edit_plan":"Terv sikeresen szerkesztve lett!",
@@ -42,6 +42,7 @@
     "launches":"Indítások",
     "open":"Megnyit",
     "launches_sent":"Indítások kiküldve",
-    "back":"Vissza"
+    "back":"Vissza",
+    "notifications_scheduled":"{{cnt}} értesítés beütemezve!"
   }
 }

@@ -1,57 +1,75 @@
 import { IonAvatar, IonBackButton, IonButton, IonButtons, IonCol, IonContent, IonFab, IonFabButton, IonGrid, IonHeader, IonIcon, IonItem, IonItemDivider, IonItemOption, IonItemOptions, IonItemSliding, IonLabel, IonList, IonPage, IonRow, IonTitle, IonToggle, IonToolbar, useIonToast } from '@ionic/react';
 import './Home.css';
 import StorageManager  from '../components/storageManager'
-import { RouteComponentProps, useHistory, useParams } from 'react-router';
-import { useContext, useEffect, useRef, useState } from 'react';
-import { attack, plan } from './Home';
-import { ActionPerformed, LocalNotificationDescriptor, LocalNotifications, LocalNotificationSchema } from '@capacitor/local-notifications';
-import { checkmarkDoneCircleOutline, flash, notifications, notificationsOutline, settingsOutline, time } from 'ionicons/icons';
+import { useEffect, useRef, useState } from 'react';
+import { alarm, checkmarkDoneCircleOutline, flash, notifications, notificationsOutline, planet, settingsOutline, time } from 'ionicons/icons';
 import { App } from '@capacitor/app';
-import editPlanModal from '../components/editPlanModal';
-import EditPlanModal from '../components/editPlanModal';
-import AlertModal from '../components/alertModal';
 import { useTranslation } from 'react-i18next';
+import { capacitorExactAlarm } from 'capacitor-exact-alarm';
+import { attack, plan, updateAlertIds } from '../store/appSlice';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '../store/store';
+import PlanModal from '../components/PlanModal';
+import AlertModal from '../components/AlertModal';
 
-interface worldProps{
-  alertIds:number[],
-  id:string,
-  alertCleared:() => void
+interface Props{
+  openPlan:string;
+}
+
+declare global {
+  interface Window {
+    plugins: any;
+  }
 }
     
-type editPlanModalHandler = React.ElementRef<typeof editPlanModal>;
-type alertModalHandler = React.ElementRef<typeof AlertModal>;
 let IsSleeping:boolean=false;
-let OpenedID=-1;
 
-const Plan: React.FC<worldProps> = (props) => {
+const Plan: React.FC<Props> = ({openPlan}:Props) => {
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const { t, i18n } = useTranslation();
-  const modalRef = useRef<editPlanModalHandler>(null);
-  const alertModalRef = useRef<alertModalHandler>(null);
   const [plan,setPlan] = useState<plan | null>(null);
-  const [ids,setIds] = useState<number[]>([]);
-  const [alertIn,setAlertIn] = useState<string>('');
+  const plans = useSelector((state:RootState) => state.app.plans);
+  const alertIds = useSelector((state:RootState) => state.app.alertIds);
+  const [alertIn,setAlertIn] = useState<string | null>(null);
   const [present] = useIonToast();
-  const history = useHistory();
+  const [modalState, setModalState] = useState<boolean>(false);
+  const [alertState, setAlertState] = useState<boolean>(false);
+  const dispatch = useDispatch();
 
   useEffect(()=>{
-    loadPlan(parseInt(props.id));
+    console.log('useEffect[plans,openPlan]',JSON.stringify(openPlan),JSON.stringify(plans));
+    
+    let idx= plans.findIndex(plan => plan.id === parseInt(openPlan))
+    if(idx==-1) return;
+    setPlan(plans[idx]);
+
     let inter = setInterval(()=>{
-      loadPlan(parseInt(props.id));
+      console.log("update");
+      setPlan(structuredClone(plans[idx]));
     },15000);
 
     return () => {
       clearInterval(inter);
   	};
-  },[])
+  },[plans,openPlan])
 
   useEffect(()=>{
-    console.log(props.alertIds);
-    
-    if(props.alertIds.length>0){
-      setIds([...props.alertIds]);
-      alertModalRef.current?.setState(true);
-    }
-  },[props.alertIds])
+    if(alertIds === null) return;
+    setAlertState(true);
+  },[alertIds])
+
+  useEffect(()=>{
+   
+    if(plan === null) return
+     console.log('useEffect[plan]',plan);
+      /*console.log('navigate');
+      const section = document.querySelector( '.timeDivide' );
+      if(!section) return
+      setTimeout(()=>{
+        section.scrollIntoView( { behavior: 'smooth', block: 'start' } );
+      },500)*/
+      getNextAlert();
+  },[plan])
 
   const presentToast = (text:string,color:string) => {
     present({
@@ -65,69 +83,46 @@ const Plan: React.FC<worldProps> = (props) => {
   App.addListener('appStateChange', ({ isActive }) => {
     if(IsSleeping && isActive){
       IsSleeping=false;
-      loadPlan(parseInt(props.id));
     }else if(!isActive && !IsSleeping){
       IsSleeping=true;
     }
   });
 
   function getNextAlert(){
-    if(!plan!.armed){
-      setAlertIn(``);
+    if(plan === null) return;
+
+    if(!plan.armed){
+      setAlertIn(null);
       return
     }
-    let ind = plan!.attacks.findIndex((attack)=>{return attack.alertPending && !attack.grouped && attack.launchDate-plan!.alertBeforeMins*60000>Date.now()})
-    console.log('next',ind);
+
+    let ind = plan!.attacks.findIndex(
+      (attack:attack)=>{
+        return attack.alertPending && !attack.grouped && attack.launchDate-plan.alertBeforeMins*60000>Date.now()
+      }
+    )
+
+    console.log('next',ind,JSON.stringify(plan.attacks));
     if(ind>-1){
-      let mins=Math.ceil((plan!.attacks[ind].launchDate-plan!.alertBeforeMins*60000-Date.now())/60000);
-        setAlertIn(t('notification_time',{mins:mins}));
+      let mins=Math.ceil((plan.attacks[ind].launchDate-plan!.alertBeforeMins*60000-Date.now())/60000);
+      setAlertIn(t('notification_time',{mins:mins}));
     }else{
-      setAlertIn(``);
+      setAlertIn(null);
     }
   }
-
-
-  useEffect(()=>{
-    if(plan!=null){
-      /*console.log('navigate');
-      const section = document.querySelector( '.timeDivide' );
-      if(!section) return
-      setTimeout(()=>{
-        section.scrollIntoView( { behavior: 'smooth', block: 'start' } );
-      },500)*/
-       
-      getNextAlert();
-    }
-  },[plan])
 
   function editPlanModal(){
-    modalRef.current?.setState(true);
+    setModalState(true);
   }
 
-  function finishAlert(){
-    console.log('finished-alert');
-    props.alertCleared();
-    loadPlan(plan!.id);
-  }
-
-  async function finishEdit(){
-    if(plan!.armed){
+  async function finishEdit(completed:boolean){
+    if(plan!.armed && completed){
         await removeAlerts(plan!);
         await setUpAlerts(plan!);
     }
-    setPlan({...plan!});
+    setModalState(false);
   }
 
-
-  async function loadPlan(id:number){
-    let res = await StorageManager.getPlan(id);    
-    if(res==null) {
-      history.push('/');
-      return;
-    };
-    
-    setPlan({...res});
-  }
 
   function colorBytime(date:number,index:number){
     const now=new Date().getTime()
@@ -157,30 +152,25 @@ const Plan: React.FC<worldProps> = (props) => {
   }
 
   async function removeAlerts(planIn:plan){
-    let notificationsRemove:LocalNotificationDescriptor[] = [];
-
-    let temp={...planIn!};
+    let temp = structuredClone(planIn);
     temp.armed=false;
-    temp.attacks.forEach((attack)=>{
-      if(attack.alertPending && !attack.grouped){
-        notificationsRemove.push({id:parseInt(`${plan!.id}${attack.id}`)})
-      }
+    temp.attacks.forEach((attack:attack)=>{
+
       attack.alertPending=false;
       attack.grouped=false;
     })
 
-    await LocalNotifications.cancel({
-      notifications:notificationsRemove
-    })
+    for (const id of temp.alarmIds) {
+      capacitorExactAlarm.cancelAlarm({ alarmId: id })
+    }
+
     await StorageManager.editPlan(temp);
-    loadPlan(temp.id);
   }
 
   async function setUpAlerts(planIn:plan){
-    let temp={...planIn!};
-    let notifications:LocalNotificationSchema[]=[];
-    let futureAttacks:attack[] = temp!.attacks.filter((attack:attack)=>{      
-      return attack.launchDate-(temp!.alertBeforeMins*60000)>Date.now();
+    let p = structuredClone(planIn)
+    let futureAttacks:attack[] = p!.attacks.filter((attack:attack)=>{   
+      return !attack.alertSent && attack.launchDate-(p!.alertBeforeMins*60000)>Date.now();
     })
 
     if(futureAttacks.length==0){
@@ -192,92 +182,99 @@ const Plan: React.FC<worldProps> = (props) => {
 
     let actualIndex=0
     let groups=[];
-    let group=[0];
+    let group=[futureAttacks[0]];
 
     if(futureAttacks.length==1){
       groups.push(group);
     }
 
     for (let i = 1; i < futureAttacks.length; i++) {
-      if(futureAttacks[actualIndex].launchDate+(temp!.combineMinutes*60000)>=futureAttacks[i].launchDate){
-        group.push(i);
+      if(futureAttacks[actualIndex].launchDate+(p!.combineMinutes*60000)>=futureAttacks[i].launchDate){
+        group.push(futureAttacks[i]);
       }else{
         groups.push(group);
         actualIndex=i;
-        group=[i];
+        group=[futureAttacks[i]];
       }
       if(i==futureAttacks.length-1){
         groups.push(group);
       }
     }
-
-
-    groups.forEach((group)=>{
-      let attack = futureAttacks[group[0]];
+    
+    let alarmIDs:any[]=[];
+    for (const group of groups) {
+      let firstAttack = group[0];
       let ids:number[] = []
       let body:string=t('send_command_body',{minute:plan?.alertBeforeMins})
-      group.forEach((item)=>{
-        ids.push(futureAttacks[item].id-1);
+
+      let origIndex = p.attacks.findIndex((att:attack)=>att.id==firstAttack.id);
+      p.attacks[origIndex].alertPending=true;
+      p.attacks[origIndex].grouped=false;
+
+      group.forEach((attack,index)=>{
+        if(index>0){
+          p.attacks[origIndex+index].alertPending=true;
+          p.attacks[origIndex+index].grouped=true;
+        }
+        ids.push(attack.id);
         body+=t('send_command_village',{village:attack.villageToName,attack_type:attack.isAttack ? t('attack'):t('support')})
       })
 
-      notifications.push(
-        {
-          title: t('send_command',{n:group.length,date:formatDate(attack.launchDate)}),
-          body:body,
-          id:parseInt(`${temp!.id}${attack.id}`),
-          schedule:{at:new Date(attack.launchDate-(temp!.alertBeforeMins*60000))},
-          channelId:temp.channelId,
-          extra:{
-            ids:ids,
-            planId:planIn.id
-          },
-          smallIcon: "ic_stat_swords",
-          iconColor: "#d9b97c",
-        }
-      )
+      const alarm = await capacitorExactAlarm.setAlarm({
+        timestamp: new Date(firstAttack.launchDate-(p!.alertBeforeMins*60000)).getTime(),
+        title: t('send_command',{n:group.length,date:formatDate(firstAttack.launchDate)}),
+        msg: body,
+        soundName:plan!.sound,
+        data:{
+          ids:ids,
+          planId:planIn.id
+        },
+        icon: "ic_stat_swords",
+      })
+      alarmIDs.push(alarm.id);
+    }
 
-
-      let origIndex = temp.attacks.findIndex((att)=>att.id==attack.id);
-      temp.attacks[origIndex].alertPending=true;
-      temp.attacks[origIndex].grouped=false;
-      for (let i = 1; i < group.length; i++) {
-        temp.attacks[origIndex+i].alertPending=true;
-        temp.attacks[origIndex+i].grouped=true;
-      }
-    })
-
-    await LocalNotifications.schedule({
-      notifications:notifications
-    })
-
-    let res = await LocalNotifications.getPending();
-
-    console.log('pending cnt:',res.notifications.length);
-    
-
-    temp.armed=true;
-    await StorageManager.editPlan(temp);
-    loadPlan(temp.id);
+    p.armed=true;
+    p.alarmIds=alarmIDs
+    await StorageManager.editPlan(p);
+    console.log('alarmIDs',JSON.stringify(alarmIDs));
+    presentToast(`${t('notifications_scheduled',{cnt:alarmIDs.length})}`,'success');
   }
 
   function testNotification(){
-    OpenedID=-1;
-    LocalNotifications.schedule({notifications:[
-      {
-        title:`Teszt alert`,
-        body:`Teszt alert kell indítani\n új sor`,
-        id:11,
-        schedule:{at:new Date(Date.now()+3000)},
-        channelId:plan!.channelId,
-        extra:{
+    capacitorExactAlarm.setAlarm({
+      timestamp: Date.now() + 1000*10,
+      title: "Repeating Alarm",
+      msg: "This alarm repeats every 15 minutes.",
+      soundName:"",
+      icon: "ic_stat_swords",
+      data:{
           ids:[1,2],
           planId:1
-        },
-        smallIcon: "ic_stat_swords",
-        iconColor: "#d9b97c",
-      }
-    ]})
+      },
+    });
+  }
+
+  function finishAlert(){
+    setAlertState(false);
+    dispatch(updateAlertIds(null))
+  }
+
+  function startPress(id:number){
+    timerRef.current = setTimeout(() => {
+      onLongPress(id);
+    }, 1000);
+  };
+
+  function endPress(){
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  function onLongPress(id:number){
+    dispatch(updateAlertIds([id]))
   }
 
   return (
@@ -302,7 +299,7 @@ const Plan: React.FC<worldProps> = (props) => {
                 </IonCol>
             </IonRow>
             <IonRow class='ion-text-center'>
-              {alertIn!='' &&
+              {alertIn &&
                   <IonCol>{alertIn}</IonCol>
               }
             </IonRow>
@@ -319,9 +316,16 @@ const Plan: React.FC<worldProps> = (props) => {
               <IonLabel>{t('no_items')}...</IonLabel>
             </IonItem>
           }
-          {plan?.attacks.map((attack:attack,index)=>{
+          {plan?.attacks.map((attack:attack,index:number)=>{
             return(
-            <IonItem className={colorBytime(attack.launchDate,index)} key={index}>
+            <IonItem 
+              button
+              onPointerDown={()=>{startPress(attack.id)}}
+              onPointerUp={endPress}
+              onPointerLeave={endPress}
+              className={colorBytime(attack.launchDate,index)} 
+              key={index}
+            >
               <img height={20} width={20} src={`/${attack.isAttack? "attack":"support"}.png`} slot="start"/>
               <IonLabel>
                 <h2><b>#{attack.id}</b> <img src={'/unit_'+attack.unitSpeed+'.png'} /> {formatDate(attack.launchDate)}</h2>
@@ -346,8 +350,8 @@ const Plan: React.FC<worldProps> = (props) => {
           }
         </IonList>
       </IonContent>
-      <AlertModal plan={plan} ids={ids}  finishHandler={finishAlert} ref={alertModalRef}/>
-      <EditPlanModal plan={plan} finishHandler={finishEdit} ref={modalRef}/>
+      {alertIds && alertState &&  <AlertModal plan={plan} ids={alertIds} finishHandler={finishAlert} open={alertState}/> }
+      {plan && <PlanModal planIn={plan} finishHandler={finishEdit} isOpen={modalState}/>}
     </IonPage>
   );
 };

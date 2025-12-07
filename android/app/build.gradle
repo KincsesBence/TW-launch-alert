@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "io.ionic.starter"
+    namespace "hu.toldi.launchalert"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "io.ionic.starter"
+        applicationId "hu.toldi.launchalert"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

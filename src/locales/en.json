@@ -34,7 +34,7 @@
         "world": "World",
         "num_of_attacks": "Number of attacks",
         "default": "Default",
-        "to_set_def_sound": "You can change the default notification sound in system settings (click here to open)",
+        "sound": "Sound",
         "edit": "Ok",
         "edit_plan": "Edit",
         "success_edit_plan": "Plan edited successfully!",
@@ -42,6 +42,7 @@
         "launches": "Launches",
         "open": "Open",
         "launches_sent": "Launches sent",
-        "back": "Back"
+        "back": "Back",
+        "notifications_scheduled":"{{cnt}} notification scheduled!"
     }
 }

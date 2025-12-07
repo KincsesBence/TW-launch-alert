@@ -1,55 +1,32 @@
 import { IonBadge, IonButton, IonCol, IonContent, IonFab, IonFabButton, IonGrid, IonHeader, IonIcon, IonItem, IonItemDivider, IonItemOption, IonItemOptions, IonItemSliding, IonLabel, IonList, IonPage, IonProgressBar, IonRow, IonTitle, IonToolbar, useIonToast, useIonViewDidEnter } from '@ionic/react';
 import './Home.css';
-import {ActionPerformed, Channel, LocalNotifications, LocalNotificationSchema} from "@capacitor/local-notifications";
 import { useContext, useEffect, useRef, useState } from 'react';
 import { add, options } from 'ionicons/icons';
 import StorageManager  from '../components/storageManager'
 import { useHistory } from 'react-router';
-import AddPlanModal from '../components/addPlanModal';
+import PlanModal from '../components/PlanModal';
 import { useTranslation } from 'react-i18next';
+import { useSelector } from 'react-redux';
+import { capacitorExactAlarm } from 'capacitor-exact-alarm'
+import { plan } from '../store/appSlice';
+import { RootState } from '../store/store';
 
-
-export type attack = {
-  id:number,
-  villageFrom:number;
-  villageTo:number;
-  villageToName:String
-  unitSpeed:String;
-  launchDate:number;
-  launchLink:string;
-  isAttack:boolean;
-  alertSent:boolean;
-  alertPending:boolean;
-  grouped:boolean
+interface Props{
+ planId: number | null
 }
 
-export type plan ={
-  id:number,
-  name:string,
-  channelId:string,
-  maxPage:number,
-  loadedPages:number[],
-  domain:string,
-  world:string
-  combineMinutes:number,
-  alertBeforeMins:number,
-  armed:Boolean,
-  attacks:attack[],
-}
-interface homeProps{
-  planId: number | null,
-  alertIds:number[],
-}
-    
-type addPlanModalHandler = React.ElementRef<typeof AddPlanModal>;
-let OpenedID=-1;
-const Home: React.FC<homeProps> = (props)  => {
+
+const Home: React.FC<Props> = ({planId}:Props)  => {
   const { t, i18n } = useTranslation();
   const [present] = useIonToast();
   const history = useHistory();
-  const [loaded,setLoaded] = useState<boolean>(false);
-  const [plans,setPlan] = useState<plan[]>([]);
-  const modalRef = useRef<addPlanModalHandler>(null);
+  const [modalState, setModalState] = useState<boolean>(false);
+  const plans = useSelector((state:RootState) => state.app.plans);
+
+  useEffect(()=>{
+    if(planId==null) return;
+    openPlan(planId)
+  },[planId])
 
   const presentToast = (text:string,color:string) => {
     present({
@@ -60,34 +37,20 @@ const Home: React.FC<homeProps> = (props)  => {
     });
   };
 
-  useEffect(()=>{
-    LocalNotifications.requestPermissions();
-    load();
-  },[])
-
-  useEffect(()=>{
-    console.log(props.alertIds);
-    if(props.alertIds.length>0 && props.planId!=null){
-      history.push(`/plan/${props.planId}`)
-    }
-  },[props.alertIds,props.planId])
-
-  async function load(){
-    let res = await StorageManager.getPlans();
-    setTimeout(()=>{
-      setPlan([...res]);
-      setLoaded(true);
-    },500);
-  }
-
   async function removePlan(plan:plan){
+    for (const id of plan.alarmIds) {
+      capacitorExactAlarm.cancelAlarm({ alarmId: id })
+    }
     await StorageManager.removePlan(plan.id);
     presentToast(t('plan_removed'),'success');
-    load();
   }
 
   function openPlan(id:number){
     history.push(`/plan/${id}`);
+  }
+
+  function openPlanModal(){
+    setModalState(true);
   }
 
   return (
@@ -98,12 +61,11 @@ const Home: React.FC<homeProps> = (props)  => {
         </IonToolbar>
       </IonHeader>
       <IonContent fullscreen>
-        {!loaded && <IonProgressBar type="indeterminate"></IonProgressBar>}
         <IonList inset={true}>
           <IonItemDivider>
             <IonLabel>{t('plans')}:</IonLabel>
           </IonItemDivider>
-          {loaded && plans.length==0 &&
+          {plans.length==0 &&
             <IonItem>
               <IonLabel>{t('no_items')}...</IonLabel>
             </IonItem>
@@ -124,27 +86,29 @@ const Home: React.FC<homeProps> = (props)  => {
             
           }
         </IonList>
-        {loaded &&
           <>
             {plans.length==0 ?
               <IonGrid>
                 <IonRow class='ion-text-center'> 
                   <IonCol>
-                    <IonButton expand="block" onClick={()=>{modalRef.current?.setState(true)}}>{t('add_plan')}</IonButton>
+                    <IonButton expand="block" onClick={openPlanModal}>{t('add_plan')}</IonButton>
                   </IonCol>
                 </IonRow>
               </IonGrid>
               :
               <IonFab slot="fixed" vertical="bottom" horizontal="end">
-                <IonFabButton onClick={()=>{modalRef.current?.setState(true)}}>
+                <IonFabButton onClick={openPlanModal}>
                   <IonIcon icon={add}></IonIcon>
                 </IonFabButton>
               </IonFab>
             }
           </>
-        }
-        <AddPlanModal finishHandler={()=>{load()}} ref={modalRef}/>
       </IonContent>
+      {modalState && <PlanModal
+        finishHandler={()=>{setModalState(false)}} 
+        isOpen={modalState}
+        planIn={null}
+      />}
     </IonPage>
   );
 };
